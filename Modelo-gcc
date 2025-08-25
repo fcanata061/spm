@@ -1,0 +1,42 @@
+# Manifesto SPM para GCC
+
+# Identificação
+spm_name="gcc"
+spm_version="13.2.0"
+spm_description="GNU Compiler Collection - C, C++, and others"
+spm_homepage="https://gcc.gnu.org/"
+
+# Fontes (tarballs oficiais)
+spm_src_urls="
+https://ftp.gnu.org/gnu/gcc/gcc-${spm_version}/gcc-${spm_version}.tar.xz
+https://ftpmirror.gnu.org/gcc/gcc-${spm_version}/gcc-${spm_version}.tar.xz
+"
+
+# SHA256 do tarball (ajustar conforme versão exata)
+spm_sha256="e275e5898f3f7797d7dc6c5cc7756f6eb72f94f541f6274957332e0e6ef0d7f2"
+
+# Dependências de runtime e build
+spm_deps="glibc"
+spm_build_deps="gmp mpfr mpc isl make"
+
+# Diretório de build separado (fora do source tree)
+spm_build_dir="build-gcc"
+
+# Configuração
+spm_configure="../gcc-${spm_version}/configure \
+  --prefix=/usr \
+  --disable-multilib \
+  --disable-bootstrap \
+  --enable-languages=c,c++"
+
+# Compilação
+spm_make="make -j\${SPM_JOBS:-1}"
+
+# Instalação (via fakeroot/DESTDIR)
+spm_make_install="make DESTDIR=\${SPM_DESTDIR} install"
+
+# Patches oficiais do LFS (se precisar, adicione aqui)
+spm_patches=""
+
+# Licença
+spm_license="GPL-3.0-or-later, LGPL-3.0-or-later, Runtime Library Exception"
