@@ -524,6 +524,7 @@ Comandos:
   -s <categoria>       Recompila categoria específica de pacotes
   sha256 create <file> Cria SHA256
   sha256 verify <file> Verifica SHA256
+  sync                Sincroniza DB com repo Git
 
 Opções globais:
   --strip           Força strip de binários
