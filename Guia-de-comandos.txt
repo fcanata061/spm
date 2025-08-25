@@ -1,0 +1,95 @@
+=======================================================================
+SPM - Simple POSIX Package Manager - Comandos e Opções
+=======================================================================
+
+COMANDOS PRINCIPAIS
+-----------------------------------------------------------------------
+build <pkg>         Compila pacote sem instalar
+                    Atalho: -b <pkg>
+                    Observações: resolve dependências build-time, aplica patches, roda configure/make
+
+install <pkg>       Instala pacote
+                    Atalho: -i <pkg>
+                    Observações: roda build se necessário, suporta --fakeroot, --strip, --prefix, --destdir
+
+remove <pkg>        Remove pacote instalado
+                    Observações: cria backup antes, respeita pacotes protegidos, atualiza DB
+
+upgrade <pkg>       Atualiza pacote para versão maior
+                    Observações: atualiza somente se houver versão mais nova no repo
+
+search <query>      Busca pacotes no repo
+                    Atalho: -s <query>
+                    Observações: busca case-insensitive nos scripts .spm
+
+info <pkg>          Mostra informações do pacote
+                    Observações: exibe recipe e manifest (instalado, built_path, installed_by)
+
+orphans             Lista pacotes órfãos
+                    Observações: pacotes automáticos sem dependentes
+
+autoremove [--dry-run] [--yes] 
+                    Remove pacotes órfãos
+                    Observações: --dry-run simula, --yes confirma automaticamente
+
+toolchain <fase>    Constrói toolchain LFS
+                    Fases: prepare, binutils-pass1, gcc-pass1, headers, glibc, binutils-pass2, gcc-pass2, finalize, build
+
+--rebuild [-jN] [--force] 
+                    Recompila todo o sistema
+                    Observações: usa topo-sort de dependências; -jN define jobs paralelos
+
+-s <categoria>      Recompila categoria específica de pacotes
+                    Observações: categoria definida por scripts ou meta-lista
+
+sha256 create <file> 
+                    Cria SHA256 do arquivo
+                    Observações: gera <file>.sha256
+
+sha256 verify <file> [expected]
+                    Verifica SHA256
+                    Observações: falha se mismatch; suporta auto SHA se configurado
+
+
+FLAGS GLOBAIS / OPÇÕES
+-----------------------------------------------------------------------
+--fakeroot          Instala em DESTDIR simulando root
+
+--strip             Strip de binários durante install
+
+--force             Força rebuild ou aplica patches ignorando erros
+
+-jN / --jobs=N      Número de jobs paralelos no build
+
+--dry-run           Usado com autoremove para simulação
+
+--prefix=PATH       Define diretório de instalação final
+
+--destdir=PATH      Define staging temporário para install
+
+-h, --help          Mostra ajuda do SPM
+
+
+ATALHOS CURTOS
+-----------------------------------------------------------------------
+-b pkg              Igual a build pkg
+-i pkg              Igual a install pkg
+-s query            Igual a search query
+
+
+NOTAS IMPORTANTES
+-----------------------------------------------------------------------
+1. Build vs Install: Build gera artefatos; Install aplica DESTDIR, fakeroot e strip.
+2. DB Manifest: Cada pacote tem registro completo:
+   spm_name=
+   spm_version=
+   spm_installed_by=manual|auto
+   spm_built_at=TIMESTAMP
+   spm_built_path=PATH
+   spm_files_list=PATH
+   spm_protected=yes|no
+3. Autoremove seguro: remove apenas pacotes automáticos sem dependentes e respeita lista de pacotes protegidos.
+4. Topological build: recompila dependências antes dos dependentes; pula pacotes já buildados, exceto com --force ou --rebuild.
+5. Toolchain LFS: fases sequenciais, cada uma com seu script .spm.
+6. Fakeroot: simula root para instalar no staging sem precisar de sudo.
+=======================================================================
