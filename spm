@@ -1,0 +1,474 @@
+#!/bin/sh
+# spm - Simple Package Manager POSIX
+# Parte 1/5: Configurações e variáveis principais
+
+###############################################################################
+# Carrega configuração
+###############################################################################
+
+# Config global
+[ -f /etc/spm/config ] && . /etc/spm/config
+# Config usuário
+[ -f "$HOME/.spm/config" ] && . "$HOME/.spm/config"
+
+# Variáveis obrigatórias de fallback
+: "${SPM_ROOT:=/var/spm}"
+: "${SPM_PREFIX:=/usr}"
+: "${SPM_SRC_CACHE:=$SPM_ROOT/sources}"
+: "${SPM_BUILD_DIR:=$SPM_ROOT/build}"
+: "${SPM_LOG_DIR:=$SPM_ROOT/logs}"
+: "${SPM_DB_DIR:=$SPM_ROOT/db}"
+: "${SPM_PKG_DIR:=$SPM_ROOT/pkgs}"
+
+: "${SPM_TOOLCHAIN_ROOT:=/tools}"
+: "${SPM_TOOLCHAIN_BUILD:=$SPM_ROOT/toolchain}"
+: "${SPM_TOOLCHAIN_LOGS:=$SPM_ROOT/toolchain/logs}"
+
+: "${SPM_HOOKS_GLOBAL:=/etc/spm/hooks}"
+: "${SPM_HOOKS_USER:=$HOME/.spm/hooks}"
+: "${SPM_HOOKS_PKG:=./hooks}"
+
+: "${SPM_JOBS:=1}"
+: "${SPM_CFLAGS:=-O2 -pipe}"
+: "${SPM_CXXFLAGS:=$SPM_CFLAGS}"
+: "${SPM_LDFLAGS:=}"
+: "${SPM_USE_CCACHE:=no}"
+: "${SPM_STRIP_DEFAULT:=no}"
+
+: "${SPM_COLOR:=yes}"
+: "${SPM_SPINNER:=yes}"
+: "${SPM_LOG_LEVEL:=info}"
+
+: "${SPM_VERIFY_SHA256:=yes}"
+: "${SPM_AUTO_SHA256:=no}"
+
+###############################################################################
+# Funções utilitárias gerais
+###############################################################################
+
+log() {
+    local level="$1"
+    shift
+    case "$level" in
+        error) printf "\033[31m[ERROR]\033[0m %s\n" "$*" ;;
+        warn)  printf "\033[33m[WARN]\033[0m %s\n" "$*" ;;
+        info)  [ "$SPM_LOG_LEVEL" != "error" ] && printf "\033[32m[INFO]\033[0m %s\n" "$*" ;;
+        debug) [ "$SPM_LOG_LEVEL" = "debug" ] && printf "\033[36m[DEBUG]\033[0m %s\n" "$*" ;;
+        *) printf "[LOG] %s\n" "$*" ;;
+    esac
+}
+
+spinner_start() {
+    [ "$SPM_SPINNER" = "yes" ] || return
+    # placeholder para spinner visual
+}
+
+spinner_stop() {
+    [ "$SPM_SPINNER" = "yes" ] || return
+    # placeholder para parar spinner
+}
+#!/bin/sh
+# spm - Parte 2/5: Download, SHA256 e extração
+
+###############################################################################
+# Função: baixa um pacote (curl, wget ou git)
+###############################################################################
+spm_fetch() {
+    local url="$1"
+    local dest="$SPM_SRC_CACHE/$(basename "$url")"
+
+    mkdir -p "$SPM_SRC_CACHE"
+
+    if [ -f "$dest" ]; then
+        log info "Arquivo já existe no cache: $dest"
+    else
+        if command -v curl >/dev/null 2>&1; then
+            log info "Baixando $url via curl..."
+            curl -L -o "$dest" "$url" || { log error "Falha no download $url"; return 1; }
+        elif command -v wget >/dev/null 2>&1; then
+            log info "Baixando $url via wget..."
+            wget -O "$dest" "$url" || { log error "Falha no download $url"; return 1; }
+        else
+            log error "curl ou wget não encontrados"
+            return 1
+        fi
+    fi
+
+    echo "$dest"
+}
+
+###############################################################################
+# Função: verificar SHA256
+###############################################################################
+spm_verify_sha256() {
+    local file="$1"
+    local expected="$2"
+
+    [ "$SPM_VERIFY_SHA256" = "no" ] && return 0
+    if [ -z "$expected" ]; then
+        [ "$SPM_AUTO_SHA256" = "yes" ] && {
+            log info "Gerando SHA256 automaticamente para $file"
+            sha256sum "$file" > "$file.sha256"
+            return 0
+        }
+        log warn "SHA256 não fornecido para $file, pulando verificação"
+        return 0
+    fi
+
+    log info "Verificando SHA256 de $file..."
+    local sum
+    sum=$(sha256sum "$file" | awk '{print $1}')
+    if [ "$sum" != "$expected" ]; then
+        log error "SHA256 mismatch: esperado $expected, obtido $sum"
+        return 1
+    fi
+    log info "SHA256 verificado com sucesso"
+    return 0
+}
+
+###############################################################################
+# Função: extrair arquivos (tar, zip, etc)
+###############################################################################
+spm_extract() {
+    local file="$1"
+    local dest="$2"
+
+    mkdir -p "$dest"
+
+    case "$file" in
+        *.tar.gz|*.tgz) tar xzf "$file" -C "$dest" ;;
+        *.tar.bz2|*.tbz2) tar xjf "$file" -C "$dest" ;;
+        *.tar.xz|*.txz) tar xJf "$file" -C "$dest" ;;
+        *.zip) unzip -q "$file" -d "$dest" ;;
+        *) log error "Formato de arquivo não suportado: $file"; return 1 ;;
+    esac
+
+    log info "Extraído $file para $dest"
+}
+
+###############################################################################
+# Função: clonagem git (opcional)
+###############################################################################
+spm_git_clone() {
+    local repo="$1"
+    local dest="$2"
+    local branch="$3"
+
+    if [ -d "$dest/.git" ]; then
+        log info "Repositório já existe em $dest, fazendo pull..."
+        git -C "$dest" pull || { log error "Falha no git pull"; return 1; }
+    else
+        log info "Clonando repositório $repo..."
+        git clone --branch "${branch:-main}" "$repo" "$dest" || { log error "Falha no git clone"; return 1; }
+    fi
+}
+#!/bin/sh
+# spm - Parte 3/5: Build, Patch, Compile e Install
+
+###############################################################################
+# Função: executar hooks
+###############################################################################
+run_hooks() {
+    local phase="$1"
+    for dir in "$SPM_HOOKS_GLOBAL" "$SPM_HOOKS_USER" "$SPM_HOOKS_PKG"; do
+        [ -d "$dir/$phase.d" ] || continue
+        for hook in "$dir/$phase.d/"*.sh; do
+            [ -x "$hook" ] && "$hook" "$spm_name" "$spm_version"
+        done
+    done
+}
+
+###############################################################################
+# Função: aplicar patches
+###############################################################################
+spm_patch() {
+    local patches="$1"
+    local workdir="$2"
+
+    [ -z "$patches" ] && return 0
+    for p in $patches; do
+        log info "Aplicando patch $p..."
+        patch -d "$workdir" -p1 < "$p" || { log error "Falha ao aplicar patch $p"; return 1; }
+    done
+}
+
+###############################################################################
+# Função: build do pacote (não instala)
+###############################################################################
+spm_build() {
+    local workdir="$SPM_BUILD_DIR/$spm_name-$spm_version"
+
+    mkdir -p "$SPM_BUILD_DIR"
+    run_hooks pre-build
+
+    # Aplicar patch se houver
+    spm_patch "$spm_patches" "$workdir" || return 1
+
+    # Configuração
+    if [ -n "$spm_configure" ]; then
+        log info "Configurando $spm_name..."
+        (cd "$workdir" && eval "$spm_configure") || return 1
+    fi
+
+    # Compilação
+    if [ -n "$spm_make" ]; then
+        log info "Compilando $spm_name..."
+        (cd "$workdir" && eval "$spm_make") || return 1
+    fi
+
+    run_hooks post-build
+    log info "Build concluído: $spm_name"
+}
+
+###############################################################################
+# Função: instalar pacote (fakeroot, strip, hooks)
+###############################################################################
+spm_install() {
+    local dest="${SPM_DESTDIR:-$SPM_PREFIX}"
+    local use_fakeroot="${SPM_FAKEROOT:-no}"
+
+    [ ! -d "$SPM_BUILD_DIR/$spm_name-$spm_version" ] && spm_build || true
+
+    run_hooks pre-install
+
+    log info "Instalando $spm_name em $dest..."
+
+    if [ "$use_fakeroot" = "yes" ] && command -v fakeroot >/dev/null 2>&1; then
+        log info "Usando fakeroot para instalar..."
+        fakeroot sh -c "cd $SPM_BUILD_DIR/$spm_name-$spm_version && $spm_make_install"
+    else
+        (cd "$SPM_BUILD_DIR/$spm_name-$spm_version" && eval "$spm_make_install") || return 1
+    fi
+
+    # Strip se necessário
+    local strip_pkg="$spm_strip"
+    [ "$SPM_FORCE_STRIP" = "yes" ] && strip_pkg="yes"
+    if [ "$strip_pkg" = "yes" ]; then
+        log info "Stripando binários de $spm_name..."
+        find "$dest" -type f -exec file {} \; \
+            | grep 'ELF' | cut -d: -f1 \
+            | while read bin; do
+                  strip --strip-unneeded "$bin" 2>/dev/null || true
+              done
+    fi
+
+    run_hooks post-install
+    log info "Instalação concluída: $spm_name"
+
+    # Atualiza DB
+    mkdir -p "$SPM_DB_DIR"
+    echo "$dest" > "$SPM_DB_DIR/$spm_name-$spm_version.manifest"
+}
+#!/bin/sh
+# spm - Parte 4/5: Dependências, órfãos, search, info, upgrade
+
+###############################################################################
+# Função: topo-sort de dependências (build-order)
+###############################################################################
+spm_resolve_deps() {
+    local pkg="$1"
+    local resolved="$2"
+    local dep
+    [ -z "$resolved" ] && resolved=""
+
+    for dep in $(eval echo "\$spm_build_deps" "\$spm_deps"); do
+        case " $resolved " in
+            *" $dep "*) continue ;;
+        esac
+        # Recursivo
+        spm_resolve_deps "$dep" "$resolved"
+        resolved="$resolved $dep"
+    done
+
+    echo "$resolved $pkg"
+}
+
+###############################################################################
+# Função: listar pacotes órfãos (instalados como auto e sem dependentes)
+###############################################################################
+spm_orphans() {
+    mkdir -p "$SPM_DB_DIR"
+    local pkg deps installed auto_orphans
+    installed=$(ls "$SPM_DB_DIR" | sed 's/\.manifest$//')
+    auto_orphans=""
+    for pkg in $installed; do
+        # check installed_by
+        if grep -q 'manual' "$SPM_DB_DIR/$pkg.manifest"; then
+            continue
+        fi
+        # check reverse deps
+        deps=$(grep -h "spm_deps=" "$SPM_PKG_DIR/$pkg.spm" 2>/dev/null | cut -d= -f2 | tr -d '"')
+        if [ -z "$deps" ]; then
+            auto_orphans="$auto_orphans $pkg"
+        fi
+    done
+    echo "$auto_orphans"
+}
+
+###############################################################################
+# Função: remover pacote
+###############################################################################
+spm_remove() {
+    local pkg="$1"
+    local manifest="$SPM_DB_DIR/$pkg.manifest"
+
+    [ ! -f "$manifest" ] && { log warn "Pacote $pkg não está instalado"; return 1; }
+
+    run_hooks pre-remove
+    log info "Removendo $pkg..."
+    xargs rm -rf < "$manifest" 2>/dev/null || true
+    rm -f "$manifest"
+    run_hooks post-remove
+    log info "$pkg removido"
+}
+
+###############################################################################
+# Função: search pacote no repo
+###############################################################################
+spm_search() {
+    local query="$1"
+    grep -i "$query" "$SPM_PKG_DIR"/*.spm | sed 's#.*/##;s/\.spm$//'
+}
+
+###############################################################################
+# Função: info pacote
+###############################################################################
+spm_info() {
+    local pkg="$1"
+    local manifest="$SPM_DB_DIR/$pkg.manifest"
+    local recipe="$SPM_PKG_DIR/$pkg.spm"
+
+    echo "Informações do pacote: $pkg"
+    [ -f "$recipe" ] && grep '^spm_' "$recipe"
+    if [ -f "$manifest" ]; then
+        echo "Instalado em: $(cat "$manifest")"
+        grep 'manual\|auto' "$manifest"
+    else
+        echo "Pacote não instalado"
+    fi
+}
+
+###############################################################################
+# Função: upgrade de pacote (versão maior)
+###############################################################################
+spm_upgrade() {
+    local pkg="$1"
+    local manifest="$SPM_DB_DIR/$pkg.manifest"
+    [ ! -f "$manifest" ] && { log info "$pkg não instalado, instalando..."; spm_install "$pkg"; return; }
+
+    local current_version new_version
+    current_version=$(basename "$manifest" | sed 's/^.*-//;s/\.manifest$//')
+    # busca no repo a versão maior
+    new_version=$(ls "$SPM_PKG_DIR/$pkg-"*.spm 2>/dev/null | sed 's#.*/##;s/\.spm$//' | sort -V | tail -n1)
+    [ -z "$new_version" ] && { log info "Nenhuma versão mais recente encontrada"; return; }
+
+    if [ "$new_version" = "$current_version" ]; then
+        log info "$pkg já está na versão mais recente ($current_version)"
+    else
+        log info "Atualizando $pkg: $current_version → $new_version"
+        spm_install "$pkg"
+    fi
+}
+#!/bin/sh
+# spm - Parte 5/5: Toolchain LFS e CLI principal
+
+###############################################################################
+# Função: construir toolchain LFS
+###############################################################################
+spm_toolchain() {
+    local phase="$1"
+
+    case "$phase" in
+        prepare)
+            log info "Preparando diretórios da toolchain..."
+            mkdir -p "$SPM_TOOLCHAIN_ROOT" "$SPM_TOOLCHAIN_BUILD" "$SPM_TOOLCHAIN_LOGS"
+            export PATH="$SPM_TOOLCHAIN_ROOT/bin:$PATH"
+            ;;
+        binutils-pass1|gcc-pass1|headers|glibc|binutils-pass2|gcc-pass2)
+            local recipe="$SPM_PKG_DIR/$phase.spm"
+            if [ ! -f "$recipe" ]; then
+                log error "Receita não encontrada: $recipe"
+                return 1
+            fi
+            log info "Executando fase $phase da toolchain..."
+            . "$recipe"
+            spm_build
+            spm_install
+            ;;
+        finalize)
+            log info "Finalizando toolchain..."
+            # Ajusta symlinks e PATH se necessário
+            ;;
+        build)
+            # Executa todas fases na ordem
+            spm_toolchain prepare
+            for f in binutils-pass1 gcc-pass1 headers glibc binutils-pass2 gcc-pass2 finalize; do
+                spm_toolchain "$f"
+            done
+            ;;
+        *)
+            log error "Fase de toolchain inválida: $phase"
+            return 1
+            ;;
+    esac
+}
+
+###############################################################################
+# CLI principal
+###############################################################################
+usage() {
+    cat <<EOF
+SPM - Simple POSIX Package Manager
+
+Uso: spm <comando> [pacote] [opções]
+
+Comandos:
+  build <pkg>       Compila o pacote sem instalar
+  install <pkg>     Instala o pacote
+  remove <pkg>      Remove o pacote
+  upgrade <pkg>     Atualiza para versão maior
+  search <query>    Busca pacotes no repo
+  info <pkg>        Mostra informações do pacote
+  orphans           Lista pacotes órfãos
+  toolchain <fase>  Constrói toolchain LFS
+                     fases: prepare, binutils-pass1, gcc-pass1,
+                             headers, glibc, binutils-pass2,
+                             gcc-pass2, finalize, build
+Opções globais:
+  --strip           Força strip de todos os pacotes
+  --fakeroot        Usa fakeroot na instalação
+  -h, --help        Mostra esta ajuda
+
+EOF
+}
+
+###############################################################################
+# Parsing de argumentos
+###############################################################################
+SPM_FORCE_STRIP="no"
+SPM_FAKEROOT="no"
+
+cmd="$1"
+pkg="$2"
+
+shift 2 || true
+
+for arg in "$@"; do
+    case "$arg" in
+        --strip) SPM_FORCE_STRIP="yes" ;;
+        --fakeroot) SPM_FAKEROOT="yes" ;;
+        -h|--help) usage; exit 0 ;;
+    esac
+done
+
+case "$cmd" in
+    build) spm_build ;;
+    install) spm_install ;;
+    remove) spm_remove "$pkg" ;;
+    upgrade) spm_upgrade "$pkg" ;;
+    search) spm_search "$pkg" ;;
+    info) spm_info "$pkg" ;;
+    orphans) spm_orphans ;;
+    toolchain) spm_toolchain "$pkg" ;;
+    *) usage ;;
+esac
