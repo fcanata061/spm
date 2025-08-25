@@ -402,7 +402,22 @@ spm_autoremove() {
         done
     fi
 }
+###############################################################################
+# Função: sincronizar DB com repo Git
+###############################################################################
+spm_sync() {
+    local repo_dir="$SPM_DB_DIR"
+    [ ! -d "$repo_dir/.git" ] && { log warn "Repo Git não inicializado em $repo_dir"; return 1; }
 
+    log info "Sincronizando DB com repo Git em $repo_dir..."
+    cd "$repo_dir" || return 1
+
+    git add . 
+    git commit -m "Atualização automática do SPM DB em $(date '+%Y-%m-%d %H:%M:%S')" 2>/dev/null || true
+    git push || { log error "Falha ao dar push para o repo Git"; return 1; }
+
+    log info "Sincronização concluída"
+}
 ###############################################################################
 # Função: search pacote
 ###############################################################################
@@ -562,6 +577,7 @@ case "$cmd" in
     orphans) spm_orphans ;;
     autoremove) spm_autoremove "$( [ "$arg1" = "--dry-run" ] && echo yes || echo no )" ;;
     toolchain) spm_toolchain "$arg1" ;;
+    sync) spm_sync ;;
     --rebuild)
         log info "Recompilando todo o sistema..."
         spm_recompile_all "$@" ;;
