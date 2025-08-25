@@ -1,0 +1,91 @@
+###############################################################################
+# Diretórios principais
+###############################################################################
+
+# Raiz do SPM (banco de dados, cache, logs)
+SPM_ROOT="/var/spm"
+
+# Diretório onde ficam pacotes instalados via spm (DESTDIR base)
+SPM_PREFIX="/usr"
+
+# Diretório de cache para tarballs/fontes
+SPM_SRC_CACHE="$SPM_ROOT/sources"
+
+# Diretório temporário para builds
+SPM_BUILD_DIR="$SPM_ROOT/build"
+
+# Diretório de logs por pacote
+SPM_LOG_DIR="$SPM_ROOT/logs"
+
+# Diretório de banco de dados dos pacotes
+SPM_DB_DIR="$SPM_ROOT/db"
+
+# Diretório para pacotes binários compilados
+SPM_PKG_DIR="$SPM_ROOT/pkgs"
+
+###############################################################################
+# Toolchain (Linux From Scratch)
+###############################################################################
+
+# Raiz da toolchain temporária
+SPM_TOOLCHAIN_ROOT="/tools"
+
+# Diretório de build da toolchain
+SPM_TOOLCHAIN_BUILD="$SPM_ROOT/toolchain"
+
+# Diretório de logs da toolchain
+SPM_TOOLCHAIN_LOGS="$SPM_ROOT/toolchain/logs"
+
+###############################################################################
+# Hooks
+###############################################################################
+
+# Diretório de hooks global do sistema
+SPM_HOOKS_GLOBAL="/etc/spm/hooks"
+
+# Diretório de hooks do usuário
+SPM_HOOKS_USER="$HOME/.spm/hooks"
+
+# Diretório de hooks que podem vir com a receita/pacote
+SPM_HOOKS_PKG="./hooks"
+
+###############################################################################
+# Build
+###############################################################################
+
+# Número de jobs para make
+SPM_JOBS=1
+
+# Flags globais para compilação
+SPM_CFLAGS="-O2 -pipe"
+SPM_CXXFLAGS="$SPM_CFLAGS"
+SPM_LDFLAGS=""
+
+# Se deve usar ccache (yes/no)
+SPM_USE_CCACHE="no"
+
+# Se deve rodar strip por padrão em todos os pacotes (yes/no)
+SPM_STRIP_DEFAULT="no"
+
+###############################################################################
+# Saída / UI
+###############################################################################
+
+# Ativar cores (yes/no)
+SPM_COLOR="yes"
+
+# Ativar spinner durante operações longas (yes/no)
+SPM_SPINNER="yes"
+
+# Nível de log: error, warn, info, debug
+SPM_LOG_LEVEL="info"
+
+###############################################################################
+# Segurança
+###############################################################################
+
+# Verificar SHA256 dos tarballs (yes/no)
+SPM_VERIFY_SHA256="yes"
+
+# Criar checksum automaticamente se não existir (yes/no)
+SPM_AUTO_SHA256="no"
